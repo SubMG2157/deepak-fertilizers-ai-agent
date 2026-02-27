@@ -1,5 +1,5 @@
 // backend/exotel/webhookHandler.ts
-// COMPLETE CORRECTED VERSION - hold.wav + Say tags for all responses
+// DEBUGGING VERSION - Shows everything Exotel sends
 
 import { Request, Response } from 'express';
 import { initializeSession, processAudioChunk, getSession, cleanupSession } from './conversationFlow';
@@ -8,14 +8,18 @@ import { initializeSession, processAudioChunk, getSession, cleanupSession } from
  * Handle initial call connection from Exotel
  */
 export async function handleVoiceWebhook(req: Request, res: Response): Promise<void> {
+    console.log('🔥 /exotel/voice webhook hit');
+    console.log('📋 Request Method:', req.method);
+    console.log('📋 Headers:', JSON.stringify(req.headers, null, 2));
+    console.log('📋 Body:', JSON.stringify(req.body, null, 2));
+    console.log('📋 Query:', JSON.stringify(req.query, null, 2));
+    console.log('📋 Params:', JSON.stringify(req.params, null, 2));
+
     const CallSid = req.body.CallSid || req.query.CallSid;
     const From = req.body.From || req.query.From;
     const To = req.body.To || req.query.To;
 
-    console.log('🔥 /exotel/voice webhook hit');
-    console.log('📞 Incoming call:', { CallSid, From, To });
-    console.log('📥 Body:', req.body);
-    console.log('📥 Query:', req.query);
+    console.log('📞 Extracted values:', { CallSid, From, To });
 
     try {
         const redirectXml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -23,6 +27,7 @@ export async function handleVoiceWebhook(req: Request, res: Response): Promise<v
   <Redirect>${process.env.BACKEND_BASE_URL}/exotel/gather</Redirect>
 </Response>`;
 
+        console.log('📤 Sending XML:', redirectXml);
         res.set('Content-Type', 'text/xml');
         res.send(redirectXml);
     } catch (error: any) {
@@ -40,13 +45,18 @@ export async function handleVoiceWebhook(req: Request, res: Response): Promise<v
  * Handle the continuous Exotel Gather loop
  */
 export async function handleGatherWebhook(req: Request, res: Response): Promise<void> {
+    console.log('🎙️ /exotel/gather webhook hit');
+    console.log('📋 Request Method:', req.method);
+    console.log('📋 Body:', JSON.stringify(req.body, null, 2));
+    console.log('📋 Query:', JSON.stringify(req.query, null, 2));
+
     const CallSid = req.body?.CallSid || req.query?.CallSid;
     const RecordingUrl = req.body?.RecordingUrl || req.query?.RecordingUrl;
     const RecordingDuration = req.body?.RecordingDuration || req.query?.RecordingDuration;
     const From = req.body?.From || req.query?.From;
     const To = req.body?.To || req.query?.To;
 
-    console.log('🎙️ Gather webhook hit:', {
+    console.log('🎙️ Extracted:', {
         CallSid,
         From,
         To,
@@ -55,7 +65,6 @@ export async function handleGatherWebhook(req: Request, res: Response): Promise<
     });
 
     try {
-        // Get or create session
         let session = getSession(CallSid);
         if (!session) {
             const context = getCallContext(CallSid);
@@ -68,77 +77,48 @@ export async function handleGatherWebhook(req: Request, res: Response): Promise<
                 context?.lastProduct || 'NPK 19-19-19'
             );
             session = getSession(CallSid);
-            console.log(`📞 New session: ${session?.customerName} (${CallSid})`);
+            console.log(`📞 New session: ${session?.customerName}`);
         }
 
         let responseText = '';
         let shouldEnd = false;
 
-        // Check if this is first interaction or user response
         if (!RecordingUrl || parseInt(RecordingDuration || '0') === 0) {
-            // FIRST INTERACTION - Play hold.wav + greeting
-            console.log('🎵 First interaction - hold music + greeting');
+            console.log('👋 First interaction - sending greeting');
 
             const customerName = session?.customerName || 'शेतकरी';
             responseText = session?.language === 'Marathi'
                 ? `नमस्कार ${customerName} जी, मी दीपक फर्टिलायझर्सकडून बोलतोय। तुम्हाला दोन मिनिटं बोलता येईल का?`
                 : `Hello ${customerName}, this is Deepak Fertilizers. Can you speak for two minutes?`;
 
-            const safeText = escapeXml(responseText);
+        } else {
+            console.log('🎤 User spoke - processing');
 
-            const greetingXml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Play>${process.env.BACKEND_BASE_URL}/audio/hold.wav</Play>
-  <Gather action="${process.env.BACKEND_BASE_URL}/exotel/gather" method="POST" timeout="5" finishOnKey="#">
-    <Say voice="Polly.Aditi" language="hi-IN">${safeText}</Say>
-  </Gather>
-  <Say voice="Polly.Aditi" language="hi-IN">माफ करा, तुम्ची प्रतिक्रिया ऐकली नाही</Say>
-  <Redirect>${process.env.BACKEND_BASE_URL}/exotel/gather</Redirect>
-</Response>`;
+            try {
+                await processAudioChunk(CallSid, RecordingUrl);
+                session = getSession(CallSid);
 
-            console.log('📤 Sending: hold.wav + greeting');
-            res.set('Content-Type', 'text/xml');
-            res.send(greetingXml);
-            return;
-        }
+                if (!session) {
+                    shouldEnd = true;
+                    responseText = 'धन्यवाद!';
+                } else if (session.transcript && session.transcript.length > 0) {
+                    const agentMessages = session.transcript.filter((t: any) => t.role === 'agent');
+                    const lastMessage = agentMessages[agentMessages.length - 1];
+                    responseText = lastMessage?.text || 'हो, बोला';
+                    shouldEnd = checkEndPhrases(responseText);
+                } else {
+                    responseText = 'हो, बोला';
+                }
 
-        // USER SPOKE - Process their recording
-        console.log('🎤 User spoke - processing');
-
-        try {
-            // Process audio with Gemini (transcription + AI response)
-            await processAudioChunk(CallSid, RecordingUrl);
-
-            // Get the response from session transcript
-            session = getSession(CallSid);
-
-            if (!session) {
-                // Session cleaned up - conversation ended
-                shouldEnd = true;
-                responseText = 'धन्यवाद!';
-            } else if (session.transcript && session.transcript.length > 0) {
-                // Get last agent response from transcript
-                const agentMessages = session.transcript.filter((t: any) => t.role === 'agent');
-                const lastMessage = agentMessages[agentMessages.length - 1];
-                responseText = lastMessage?.text || 'हो, बोला';
-
-                // Check if should end
-                shouldEnd = checkEndPhrases(responseText);
-            } else {
-                responseText = 'हो, बोला';
+            } catch (error: any) {
+                console.error('❌ Error:', error.message);
+                responseText = 'माफ करा, मला काही समजलं नाही. कृपया पुन्हा सांगा.';
             }
-
-        } catch (error: any) {
-            console.error('❌ Error processing:', error.message);
-            responseText = 'माफ करा, मला काही समजलं नाही. कृपया पुन्हा सांगा.';
         }
 
-        // Escape XML
         const safeText = escapeXml(responseText);
 
-        // Build response
         if (shouldEnd) {
-            // End call
             const hangupXml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="Polly.Aditi" language="hi-IN">${safeText}</Say>
@@ -148,11 +128,9 @@ export async function handleGatherWebhook(req: Request, res: Response): Promise<
             console.log('🏁 Ending call');
             res.set('Content-Type', 'text/xml');
             res.send(hangupXml);
-
             setTimeout(() => cleanupSession(CallSid), 5000);
 
         } else {
-            // Continue conversation
             const continueXml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather action="${process.env.BACKEND_BASE_URL}/exotel/gather" method="POST" timeout="5" finishOnKey="#">
@@ -178,27 +156,11 @@ export async function handleGatherWebhook(req: Request, res: Response): Promise<
     }
 }
 
-/**
- * Check if text contains end phrases
- */
 function checkEndPhrases(text: string): boolean {
-    const endPhrases = [
-        'धन्यवाद',
-        'शुभ दिवस',
-        'बाय',
-        'goodbye',
-        'पुन्हा भेटू',
-        'काळजी घ्या'
-    ];
-
-    return endPhrases.some(phrase =>
-        text.toLowerCase().includes(phrase.toLowerCase())
-    );
+    const endPhrases = ['धन्यवाद', 'शुभ दिवस', 'बाय', 'goodbye', 'पुन्हा भेटू', 'काळजी घ्या'];
+    return endPhrases.some(phrase => text.toLowerCase().includes(phrase.toLowerCase()));
 }
 
-/**
- * Escape XML special characters
- */
 function escapeXml(text: string): string {
     return text
         .replace(/&/g, '&amp;')
@@ -208,9 +170,6 @@ function escapeXml(text: string): string {
         .replace(/'/g, '&apos;');
 }
 
-/**
- * Handle call status updates
- */
 export async function handleStatusCallback(req: Request, res: Response): Promise<void> {
     const CallSid = req.body.CallSid || req.query.CallSid;
     const Status = req.body.Status || req.query.Status || req.body.CallStatus || req.query.CallStatus;
@@ -235,18 +194,12 @@ export async function handleStatusCallback(req: Request, res: Response): Promise
     res.sendStatus(200);
 }
 
-/**
- * Handle SMS status callback
- */
 export async function handleSMSStatusCallback(req: Request, res: Response): Promise<void> {
     const { SmsSid, SmsStatus, To } = req.body;
     console.log('📧 SMS status:', { SmsSid, SmsStatus, To });
     res.sendStatus(200);
 }
 
-/**
- * Force hangup
- */
 export async function handleHangup(req: Request, res: Response): Promise<void> {
     const CallSid = req.body.CallSid || req.query.CallSid;
     console.log('📴 Hangup:', CallSid);
@@ -259,7 +212,6 @@ export async function handleHangup(req: Request, res: Response): Promise<void> {
     res.send(`<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>`);
 }
 
-// Call context storage
 const callContexts = new Map<string, any>();
 
 export function setCallContext(callSid: string, context: any): void {
@@ -274,7 +226,6 @@ export function clearCallContext(callSid: string): void {
     callContexts.delete(callSid);
 }
 
-// Legacy - not used in Gather flow
 export async function handleRecordingCallback(req: Request, res: Response): Promise<void> {
     console.log('⚠️ Legacy recording callback - not used');
     res.sendStatus(200);
