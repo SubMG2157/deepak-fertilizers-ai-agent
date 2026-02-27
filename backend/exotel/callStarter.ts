@@ -1,5 +1,5 @@
 // backend/exotel/callStarter.ts
-// CORRECTED VERSION - Uses direct webhook URL instead of Gather applet
+// DEBUG VERSION - Extra logging
 
 import axios from 'axios';
 import { setCallContext } from './webhookHandler';
@@ -14,7 +14,6 @@ interface StartCallOptions {
 
 /**
  * Initiate outbound call via Exotel
- * CRITICAL FIX: Uses webhook URL directly, NOT the Gather applet
  */
 export async function startExotelCall(options: StartCallOptions): Promise<string> {
   const { phone, name = 'शेतकरी', lastProduct, language = 'Marathi', agentGender = 'female' } = options;
@@ -32,22 +31,28 @@ export async function startExotelCall(options: StartCallOptions): Promise<string
   const callerId = process.env.EXOTEL_NUMBER || '';
   console.log('📞 Caller ID:', callerId);
 
+  // Build webhook URL
+  const webhookUrl = `${process.env.BACKEND_BASE_URL}/exotel/voice`;
+  console.log('📞 Webhook URL:', webhookUrl);
+  console.log('📞 BACKEND_BASE_URL env var:', process.env.BACKEND_BASE_URL);
+
   // Build Exotel API endpoint
   const endpoint = `https://${process.env.EXOTEL_API_KEY}:${process.env.EXOTEL_API_TOKEN}@api.exotel.com/v1/Accounts/${process.env.EXOTEL_SID}/Calls/connect.json`;
-
-  // CRITICAL FIX: Use direct webhook URL, NOT applet URL
-  const webhookUrl = `${process.env.BACKEND_BASE_URL}/exotel/voice`;
 
   const params = {
     From: normalizedPhone,
     CallerId: callerId,
-    Url: webhookUrl,  // ✅ Direct webhook, NOT applet!
+    Url: webhookUrl,
     CallType: 'trans',
     TimeLimit: '600',
-    TimeOut: '30'
+    TimeOut: '30',
+    StatusCallback: `${process.env.BACKEND_BASE_URL}/exotel/status`,  // ADD STATUS CALLBACK
+    Record: 'false'  // Don't record the call itself
   };
 
   console.log('📞 Exotel API Request:', { endpoint, params });
+  console.log('📞 CRITICAL - URL being sent to Exotel:', params.Url);
+  console.log('📞 CRITICAL - StatusCallback URL:', params.StatusCallback);
 
   try {
     const response = await axios.post(
@@ -56,7 +61,8 @@ export async function startExotelCall(options: StartCallOptions): Promise<string
       {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded'
-        }
+        },
+        timeout: 10000  // 10 second timeout
       }
     );
 
@@ -76,10 +82,13 @@ export async function startExotelCall(options: StartCallOptions): Promise<string
     });
 
     console.log('✅ Call initiated:', callSid);
+    console.log('⏳ Waiting for Exotel to fetch webhook:', webhookUrl);
+
     return callSid;
 
   } catch (error: any) {
     console.error('❌ Exotel call failed:', error.response?.data || error.message);
+    console.error('❌ Full error:', error);
     throw new Error(`Failed to initiate call: ${error.message}`);
   }
 }
@@ -92,6 +101,7 @@ export async function getCallStatus(callSid: string): Promise<any> {
 
   try {
     const response = await axios.get(endpoint);
+    console.log('📊 Call status fetched:', response.data.Call);
     return response.data.Call;
   } catch (error: any) {
     console.error('❌ Get call status failed:', error.message);
