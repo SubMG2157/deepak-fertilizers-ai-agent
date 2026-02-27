@@ -13,7 +13,9 @@ export async function handleVoiceWebhook(req: Request, res: Response): Promise<v
     const To = req.body.To || req.query.To;
 
     console.log('🔥 /exotel/voice webhook hit');
-    console.log('📞 Incoming call from Exotel:', { CallSid, From, To });
+    console.log('📞 Incoming call:', { CallSid, From, To });
+    console.log('📥 Body:', req.body);
+    console.log('📥 Query:', req.query);
 
     try {
         const redirectXml = `<?xml version="1.0" encoding="UTF-8"?>
