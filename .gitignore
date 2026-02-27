@@ -1,0 +1,11 @@
+node_modules/
+.env.local
+backend/.env.local
+dist/
+.DS_Store
+*.log
+.vscode/
+.idea/
+EXOTEL CREDENTIALS.txt
+Twilio-account_info.txt
+*.txt
