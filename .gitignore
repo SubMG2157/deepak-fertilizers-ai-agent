@@ -9,3 +9,4 @@ dist/
 EXOTEL CREDENTIALS.txt
 Twilio-account_info.txt
 *.txt
+google-credentials.json

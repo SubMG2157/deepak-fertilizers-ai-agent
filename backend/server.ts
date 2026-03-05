@@ -3,7 +3,7 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, WebSocket } from 'ws';
 import http from 'http';
 import { fileURLToPath } from 'url';
 
@@ -12,6 +12,15 @@ const __dirname = path.dirname(__filename);
 
 // Load environment variables
 dotenv.config({ path: path.join(__dirname, '..', '.env.local') });
+
+// Handle Google credentials from environment
+if (process.env.GOOGLE_CREDENTIALS_JSON) {
+  const fs = require('fs');
+  const credPath = '/tmp/google-credentials.json';
+  fs.writeFileSync(credPath, process.env.GOOGLE_CREDENTIALS_JSON);
+  process.env.GOOGLE_APPLICATION_CREDENTIALS = credPath;
+  console.log('✅ Google credentials loaded from environment');
+}
 
 // Exotel imports
 import { startExotelCall, getCallStatus, hangupCall } from './exotel/callStarter';
@@ -23,6 +32,7 @@ import {
   handleSMSStatusCallback,
   handleHangup
 } from './exotel/webhookHandler';
+import { handleExotelWebSocket } from './exotel/websocketHandler';
 import exotelClient from './exotel/exotelClient';
 
 // Other imports
@@ -44,17 +54,32 @@ const server = http.createServer(app);
 // WebSocket for UI updates
 const uiWSS = new WebSocketServer({ noServer: true });
 
+// Create WebSocket server for Exotel
+const exotelWSS = new WebSocketServer({ noServer: true });
+
 // Handle WebSocket upgrade
 server.on('upgrade', (request, socket, head) => {
   const pathname = new URL(request.url || '', `http://${request.headers.host}`).pathname;
 
-  if (pathname === '/ui-sync') {
+  console.log('🔌 WebSocket upgrade:', pathname);
+
+  if (pathname === '/media' || pathname === '/exotel/media') {
+    exotelWSS.handleUpgrade(request, socket, head, (ws) => {
+      exotelWSS.emit('connection', ws, request);
+    });
+  } else if (pathname === '/ui-sync') {
     uiWSS.handleUpgrade(request, socket, head, (ws) => {
       uiWSS.emit('connection', ws, request);
     });
   } else {
     socket.destroy();
   }
+});
+
+// Exotel WebSocket handler
+exotelWSS.on('connection', (ws: WebSocket, request: http.IncomingMessage) => {
+  console.log('🎙️ Exotel Voicebot connected');
+  handleExotelWebSocket(ws, request);
 });
 
 // Store UI WebSocket globally for broadcasts
