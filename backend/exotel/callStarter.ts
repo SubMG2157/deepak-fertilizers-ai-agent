@@ -42,7 +42,7 @@ export async function startExotelCall(options: StartCallOptions): Promise<string
   const params = {
     From: normalizedPhone,
     CallerId: callerId,
-    Url: webhookUrl,
+    Url: 'http://my.exotel.com/exoml/start/1195902',
     CallType: 'trans',
     TimeLimit: '600',
     TimeOut: '30',
