@@ -19,14 +19,15 @@
     "@google/generative-ai": "^0.24.1",
     "axios": "^1.13.5",
     "cors": "^2.8.5",
+    "dompurify": "^3.3.2",
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
     "form-data": "^4.0.5",
     "jspdf": "^4.1.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "twilio": "^5.3.4",
     "tsx": "^4.19.2",
+    "twilio": "^5.3.4",
     "ws": "^8.18.0"
   },
   "devDependencies": {
