@@ -1,4 +1,6 @@
 // backend/exotel/websocketHandler.ts
+// CORRECTED VERSION - No Syntax Errors
+
 import { WebSocket } from 'ws';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
@@ -44,13 +46,19 @@ export function handleExotelWebSocket(ws: WebSocket, request: any): void {
                     currentSession = await handleStart(ws, msg);
                     break;
                 case 'media':
-                    if (currentSession) await handleMedia(ws, msg, currentSession);
+                    if (currentSession) {
+                        await handleMedia(ws, msg, currentSession);
+                    }
                     break;
                 case 'dtmf':
-                    if (msg.dtmf?.digit === '0') ws.close();
+                    if (msg.dtmf?.digit === '0') {
+                        ws.close();
+                    }
                     break;
                 case 'stop':
-                    if (currentSession) sessions.delete(currentSession.callSid);
+                    if (currentSession) {
+                        sessions.delete(currentSession.callSid);
+                    }
                     ws.close();
                     break;
                 case 'clear':
@@ -67,7 +75,13 @@ export function handleExotelWebSocket(ws: WebSocket, request: any): void {
 
     ws.on('close', () => {
         console.log('🔌 WebSocket closed');
-        if (currentSession) sessions.delete(currentSession.callSid);
+        if (currentSession) {
+            sessions.delete(currentSession.callSid);
+        }
+    });
+
+    ws.on('error', (error) => {
+        console.error('❌ WebSocket error:', error);
     });
 }
 
@@ -108,10 +122,15 @@ async function handleMedia(ws: WebSocket, msg: ExotelMessage, session: Session):
 
             const transcript = await transcribeAudio(audio);
 
-            if (transcript?.trim()) {
+            if (transcript && transcript.trim()) {
                 console.log('📝 User said:', transcript);
 
-                if ['धन्यवाद', 'बाय', 'ठीक'].some(p => transcript.toLowerCase().includes(p))) {
+                const endPhrases = ['धन्यवाद', 'बाय', 'ठीक'];
+                const hasEndPhrase = endPhrases.some(phrase =>
+                    transcript.toLowerCase().includes(phrase.toLowerCase())
+                );
+
+                if (hasEndPhrase) {
                     await sendTextAsAudio(ws, session, 'धन्यवाद! शुभ दिवस!');
                     ws.close();
                     return;
@@ -132,28 +151,43 @@ async function handleMedia(ws: WebSocket, msg: ExotelMessage, session: Session):
 }
 
 async function transcribeAudio(audio: Buffer): Promise<string> {
-    const { SpeechClient } = require('@google-cloud/speech');
-    const client = new SpeechClient();
+    try {
+        const speech = require('@google-cloud/speech');
+        const client = new speech.SpeechClient();
 
-    const [response] = await client.recognize({
-        audio: { content: audio.toString('base64') },
-        config: {
-            encoding: 'LINEAR16',
-            sampleRateHertz: 8000,
-            languageCode: 'mr-IN',
-            audioChannelCount: 1,
-        },
-    });
+        const request = {
+            audio: { content: audio.toString('base64') },
+            config: {
+                encoding: 'LINEAR16' as const,
+                sampleRateHertz: 8000,
+                languageCode: 'mr-IN',
+                audioChannelCount: 1,
+            },
+        };
 
-    return response.results
-        .map((r: any) => r.alternatives[0].transcript)
-        .join(' ');
+        const results = await client.recognize(request);
+        const response = results[0];
+
+        if (!response || !response.results) {
+            return '';
+        }
+
+        const transcription = response.results
+            .map((result: any) => result.alternatives[0].transcript)
+            .join(' ');
+
+        return transcription;
+    } catch (error: any) {
+        console.error('❌ Transcription error:', error.message);
+        return '';
+    }
 }
 
 async function getGeminiResponse(transcript: string, session: Session): Promise<string> {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+    try {
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
 
-    const prompt = `तुम्ही दीपक फर्टिलायझर्सचे विक्री प्रतिनिधी आहात.
+        const prompt = `तुम्ही दीपक फर्टिलायझर्सचे विक्री प्रतिनिधी आहात.
 ग्राहक: ${session.customerName}
 
 संक्षिप्त मराठीत उत्तर द्या (1-2 वाक्ये).
@@ -162,36 +196,59 @@ async function getGeminiResponse(transcript: string, session: Session): Promise<
 User: ${transcript}
 Response (मराठीत):`;
 
-    const result = await model.generateContent(prompt);
-    return result.response.text();
+        const result = await model.generateContent(prompt);
+        return result.response.text();
+    } catch (error: any) {
+        console.error('❌ Gemini error:', error.message);
+        return 'माफ करा, पुन्हा सांगा.';
+    }
 }
 
 async function sendTextAsAudio(ws: WebSocket, session: Session, text: string): Promise<void> {
-    const { TextToSpeechClient } = require('@google-cloud/text-to-speech');
-    const client = new TextToSpeechClient();
+    try {
+        console.log('🗣️ TTS:', text);
 
-    const [response] = await client.synthesizeSpeech({
-        input: { text },
-        voice: { languageCode: 'mr-IN', name: 'mr-IN-Standard-A' },
-        audioConfig: { audioEncoding: 'LINEAR16', sampleRateHertz: 8000 },
-    });
+        const textToSpeech = require('@google-cloud/text-to-speech');
+        const client = new textToSpeech.TextToSpeechClient();
 
-    const audio = Buffer.from(response.audioContent as Uint8Array);
-    const base64 = audio.toString('base64');
-    const chunkSize = 3200;
-    let seq = 0;
+        const request = {
+            input: { text },
+            voice: { languageCode: 'mr-IN', name: 'mr-IN-Standard-A' },
+            audioConfig: {
+                audioEncoding: 'LINEAR16' as const,
+                sampleRateHertz: 8000
+            },
+        };
 
-    for (let i = 0; i < base64.length; i += chunkSize) {
-        ws.send(JSON.stringify({
-            event: 'media',
-            streamSid: session.streamSid,
-            sequenceNumber: String(seq++),
-            media: { payload: base64.slice(i, Math.min(i + chunkSize, base64.length)) }
-        }));
-        await new Promise(r => setTimeout(r, 20));
+        const results = await client.synthesizeSpeech(request);
+        const response = results[0];
+
+        if (!response.audioContent) {
+            throw new Error('No audio content');
+        }
+
+        const audio = Buffer.from(response.audioContent as Uint8Array);
+        const base64 = audio.toString('base64');
+        const chunkSize = 3200;
+        let seq = 0;
+
+        for (let i = 0; i < base64.length; i += chunkSize) {
+            const chunk = base64.slice(i, Math.min(i + chunkSize, base64.length));
+
+            ws.send(JSON.stringify({
+                event: 'media',
+                streamSid: session.streamSid,
+                sequenceNumber: String(seq++),
+                media: { payload: chunk }
+            }));
+
+            await new Promise(resolve => setTimeout(resolve, 20));
+        }
+
+        console.log('📤 Sent', seq, 'audio chunks');
+    } catch (error: any) {
+        console.error('❌ TTS error:', error.message);
     }
-
-    console.log('📤 Sent', seq, 'audio chunks');
 }
 
 async function sendGreeting(ws: WebSocket, session: Session): Promise<void> {
