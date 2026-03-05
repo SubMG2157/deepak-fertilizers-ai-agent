@@ -13,9 +13,10 @@ const __dirname = path.dirname(__filename);
 // Load environment variables
 dotenv.config({ path: path.join(__dirname, '..', '.env.local') });
 
+import fs from 'fs';
+
 // Handle Google credentials from environment
 if (process.env.GOOGLE_CREDENTIALS_JSON) {
-  const fs = require('fs');
   const credPath = '/tmp/google-credentials.json';
   fs.writeFileSync(credPath, process.env.GOOGLE_CREDENTIALS_JSON);
   process.env.GOOGLE_APPLICATION_CREDENTIALS = credPath;
