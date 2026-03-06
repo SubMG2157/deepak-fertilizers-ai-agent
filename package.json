@@ -14,6 +14,7 @@
     "start": "tsx backend/server.ts"
   },
   "dependencies": {
+    "@google-cloud/speech": "^7.3.0",
     "@google-cloud/text-to-speech": "^6.4.0",
     "@google/genai": "^1.30.0",
     "@google/generative-ai": "^0.24.1",
