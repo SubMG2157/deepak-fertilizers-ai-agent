@@ -3,6 +3,8 @@
 
 import { WebSocket } from 'ws';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { SpeechClient } from '@google-cloud/speech';
+import { TextToSpeechClient } from '@google-cloud/text-to-speech';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
@@ -152,8 +154,7 @@ async function handleMedia(ws: WebSocket, msg: ExotelMessage, session: Session):
 
 async function transcribeAudio(audio: Buffer): Promise<string> {
     try {
-        const speech = require('@google-cloud/speech');
-        const client = new speech.SpeechClient();
+        const client = new SpeechClient();
 
         const request = {
             audio: { content: audio.toString('base64') },
@@ -208,8 +209,7 @@ async function sendTextAsAudio(ws: WebSocket, session: Session, text: string): P
     try {
         console.log('🗣️ TTS:', text);
 
-        const textToSpeech = require('@google-cloud/text-to-speech');
-        const client = new textToSpeech.TextToSpeechClient();
+        const client = new TextToSpeechClient();
 
         const request = {
             input: { text },
